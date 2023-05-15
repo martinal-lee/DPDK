@@ -1,0 +1,23 @@
+cmake_minimum_required(VERSION 3.5.1)
+project(dpdkLearning)
+
+set(CMAKE_CXX_STANDARD 14)
+
+set(ENV{PKG_CONFIG_PATH} /usr/local/lib64/pkgconfig/)
+find_package(PkgConfig)
+pkg_search_module(LIBDPDK REQUIRED libdpdk)
+#link_libraries(ws2_32)
+
+MESSAGE(STATUS ${LIBDPDK_LIBRARIES})
+MESSAGE(STATUS ${LIBDPDK_INCLUDE_DIRS})
+
+
+add_executable(dpdkLearning
+        main.c ${SOURCE_FILE})
+# 使用以下共享链接
+target_compile_options (dpdkLearning PRIVATE ${LIBDPDK_CFLAGS} )
+target_link_libraries (dpdkLearning ${LIBDPDK_LDFLAGS} )
+
+# 或使用以下静态链接
+#target_compile_options (trafficsendtools PRIVATE ${LIBDPDK_STATIC_CFLAGS} )
+#target_link_libraries (trafficsendtools ${LIBDPDK_STATIC_LDFLAGS} )
