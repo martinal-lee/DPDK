@@ -1,3 +1,0 @@
-/home/king/learning_dpdk19.08/cmake-build-debug/CMakeFiles/edit_cache.dir
-/home/king/learning_dpdk19.08/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/home/king/learning_dpdk19.08/cmake-build-debug/CMakeFiles/dpdkLearning.dir

@@ -1,1 +1,0 @@
-/usr/bin/cc  -g   CMakeFiles/dpdkLearning.dir/main.c.o  -o dpdkLearning  -L/home/king/dpdk-stable-19.08.2/x86_64-native-linux-gcc/lib -Wl,--whole-archive -ldpdk -Wl,--no-whole-archive -lpthread -lrt -ldl -lm -lnuma -lpcap -Wl,-rpath,/home/king/dpdk-stable-19.08.2/x86_64-native-linux-gcc/lib 
