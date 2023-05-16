@@ -12,6 +12,24 @@
 #include "ConstValue.h"
 #include "ARPTable.h"
 #include "PublicTools.h"
+//头插法双链表
+#define ADD_ENTRY(arp_table_first_entry, arp_entry) do{ \
+     (arp_entry)->next = arp_table_first_entry;                 \
+     (arp_entry)->prev = NULL;                                 \
+     if((arp_table_first_entry)!=NULL){                        \
+        (arp_table_first_entry)->prev = arp_entry;                                          \
+     }                                                       \
+     (arp_table_first_entry) = arp_entry;                     \
+                                                           \
+}while(0);
+
+#define REMOVE_ENTRY(arp_table_first_entry,arp_entry) do{ \
+    if ((arp_table_first_entry) == NULL) break;                   \
+    if ((arp_entry)->prev != NULL) (arp_entry)->prev->next = (arp_entry)->next; \
+    if ((arp_entry)->next != NULL) (arp_entry)->next->prev = (arp_entry)->prev; \
+    if ((arp_entry) == (arp_table_first_entry)) (arp_table_first_entry)->next = (arp_entry)->next; \
+    (arp_entry)->prev = (arp_entry)->next = NULL;                   \
+}while(0);
 
 #define TIMER_RESOLUTION_CYCLES 26880000000ULL // 10s
 //#define TIMER_RESOLUTION_CYCLES 161280000000ULL // 60s
@@ -30,7 +48,6 @@ arp_request_timer_cb(__attribute__((unused)) struct rte_timer *timer,void *arg){
 
     unsigned int i = 0;
     for (i = 1;i <= 254;i ++) {
-
         //uint32_t dstip = (localHostIP & 0xFFFFFF00) | (0xFFFFFF00 & (i << 24));
         uint32_t dstip = ((localHostIP & 0xFFFFFF00) | i);
         struct in_addr addr;
@@ -38,12 +55,14 @@ arp_request_timer_cb(__attribute__((unused)) struct rte_timer *timer,void *arg){
         //printf("arp ---> src: %s \n", inet_ntoa(addr));
 
         struct rte_mbuf *arp_send_data_mbuf = NULL;
-        uint8_t *dstmac = arp_find_dst_mac_addr(dstip);
+        uint8_t *dstmac = arp_find_dst_mac_addr(ntohl(dstip));
+
         if (dstmac == NULL) {
             arp_send_data_mbuf = ARPSend(mbuf_pool, gDpdkPortID,broadcast_mac,default_mac, localHostIP, dstip, RTE_ARP_OP_REQUEST);
 
         } else {
-            arp_send_data_mbuf = ARPSend(mbuf_pool, gDpdkPortID,dstmac,dstmac, localHostIP, dstip, RTE_ARP_OP_REQUEST);
+            continue;
+            //arp_send_data_mbuf = ARPSend(mbuf_pool, gDpdkPortID,dstmac,dstmac, localHostIP, dstip, RTE_ARP_OP_REQUEST);
         }
 
         //没有走发送队列，直接送到网卡去了
@@ -69,7 +88,6 @@ arp_table_show_timer_cb(__attribute__((unused)) struct rte_timer *timer,void *ar
     for (iter = const_arp_table->entry; iter != NULL; iter = iter->next) {
         struct in_addr addr;
         addr.s_addr = ntohl(iter->ip);
-
 
         printf("ip: %s ", inet_ntoa(addr));
         print_ethaddr(" mac: ", (struct rte_ether_addr *) iter->mac);

@@ -15,9 +15,11 @@
 #include "ConstValue.h"
 #include <rte_timer.h>
 #include <rte_ring.h>
+#include "UDPAndTCPAPI.h"
 
 
-#define UDPAPP 1
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "EndlessLoop"
 static struct rx_tx_queue* handle_queue = NULL;
 static struct rx_tx_queue* handle_queue_instance(void){
     if (handle_queue == NULL){
@@ -27,13 +29,46 @@ static struct rx_tx_queue* handle_queue_instance(void){
     return handle_queue;
 }
 
-static int UDPApp(void* arg){
+static int UDPServer(void* arg){
 /**需要实现udp的socket, bind, recvfrom, sendto 以及close api*/
+    int connfd = socket_bypass(AF_INET, SOCK_DGRAM, 0);
+    if (connfd == -1) {
+        printf("sockfd failed\n");
+        return -1;
+    }
+
+    struct sockaddr_in localaddr, clientaddr; // struct sockaddr
+    memset(&localaddr, 0, sizeof(struct sockaddr_in));
+
+    localaddr.sin_port = (8889);
+    localaddr.sin_family = AF_INET;
+    localaddr.sin_addr.s_addr = inet_addr("68.87.129.223"); // 0.0.0.0
+
+
+    bind_bypass(connfd, (struct sockaddr*)&localaddr, sizeof(localaddr));
+
+    char buffer[1024] = {0};
+    socklen_t addrlen = sizeof(clientaddr);
+    while (1) {
+
+        if (recv_from_bypass(connfd, buffer, 1024, 0,
+                      (struct sockaddr*)&clientaddr, &addrlen) < 0) {
+
+            continue;
+
+        } else {
+
+            printf("recv from %s:%d, data:%s\n", inet_ntoa(clientaddr.sin_addr),
+                   clientaddr.sin_port, buffer);
+            sendto_bypass(connfd, buffer, strlen(buffer), 0,
+                    (struct sockaddr*)&clientaddr, sizeof(clientaddr));
+        }
+
+    }
+
+    close_bypass(connfd);
 
 }
-
-
-
 
 
 
@@ -109,32 +144,15 @@ static int PktProcessMain(void* arg){
                     }
                 }
                 if (iphdr.protocol == IPPROTO_UDP) {
-                    struct UDPHeader udphdr = TransUDPDisassemble(recv_msg);
-                    //两个字节以上都要转网络字节序(已经解析过了，不用转了)
-                    unsigned short length = udphdr.len;
-
-                    if ((udphdr.srcPort) == 10000) {
-                        struct in_addr addr_src, addr_dst;
-                        addr_src.s_addr = htonl(iphdr.srcIP);
-                        addr_dst.s_addr = htonl(iphdr.dstIP);
-                        recv_msg = recv_msg + sizeof(struct UDPHeader);
-                        printf("UDP DATA: src ip: %s dst ip: %s src_port:%d dst_port:%d,payload length-->%d %s \n",
-                               inet_ntoa(addr_src), inet_ntoa(addr_dst), udphdr.srcPort, udphdr.dstPort, length - 8,
-                               (recv_msg));
-
-                        *(((char *) recv_msg) + length - 8) = '\0';
-                        struct rte_mbuf *send_data_mbuf = UDPSend(mbuf_pool, gDpdkPortID, (recv_msg), udphdr.len - 8,
-                                                           (unsigned char *) eth_hdr.dstMAC,
-                                                           iphdr.dstIP, iphdr.srcIP, udphdr.dstPort, udphdr.srcPort);
-                        rte_ring_mp_enqueue_burst(ring_buffer->tx_queue,(void**)send_data_mbuf,1,NULL);
-                    }
+                    UDPRecvProcess(iphdr, recv_msg);
                 }
-
             }
-
             //释放接收缓冲区
             rte_pktmbuf_free(process_mbuf[i]);
         }
+
+        //UDP发送
+        UDPSendProcess(mbuf_pool,ring_buffer);
     }
 
     return 0;
@@ -242,7 +260,7 @@ int main(int argc ,char* argv[]) {
 
     //udp 处理线程
     next_lcore_recv = rte_get_next_lcore(next_lcore_recv,1,0);
-    rte_eal_remote_launch(UDPApp,mbuf_pool, next_lcore_recv);/**启用多线程，1回调函数 2回调函数参数 3启用的线程数*/
+    rte_eal_remote_launch(UDPServer,mbuf_pool, next_lcore_recv);/**启用多线程，1回调函数 2回调函数参数 3启用的线程数*/
 
     while(1){
         struct rte_mbuf *rx_mbuf[BURST_BUF_SIZE];
@@ -279,3 +297,5 @@ int main(int argc ,char* argv[]) {
 
     }
 }
+
+#pragma clang diagnostic pop

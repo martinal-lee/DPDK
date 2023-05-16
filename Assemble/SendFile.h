@@ -131,7 +131,7 @@ rte_mbuf* ICMPSend(struct rte_mempool *mbuf_pool,unsigned short dev_port,unsigne
     unsigned char src_mac[6];
     rte_eth_macaddr_get(dev_port,(struct rte_ether_addr*)src_mac);
     LinkAssemble(msg,src_mac,dst_mac,RTE_ETHER_TYPE_IPV4,NULL,0,0);
-    struct rte_ipv4_hdr* transportChecksumPtr = IPv4Assemble(msg,src_ip,dst_ip,IPPROTO_ICMP,total_len-14,NULL,0);
+    IPv4Assemble(msg,src_ip,dst_ip,IPPROTO_ICMP,total_len-14,NULL,0);
     ICMPAssemble(msg,type,code,icmphdr.id,icmphdr.seq,data,data_len);
     return mbuf;
 }

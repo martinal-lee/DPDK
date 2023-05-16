@@ -8,25 +8,7 @@
 #define DPDKLEARNING_PUBLICTOOLS_H
 
 #include <rte_ethdev.h>
-//头插法双链表
-#define ADD_ENTRY(arp_table_first_entry, arp_entry) do{ \
-     (arp_entry)->next = arp_table_first_entry;                 \
-     (arp_entry)->prev = NULL;                                 \
-     if((arp_table_first_entry)!=NULL){                        \
-        (arp_table_first_entry)->prev = arp_entry;                                          \
-     }                                                       \
-     (arp_table_first_entry) = arp_entry;                     \
-                                                           \
-}while(0);
 
-#define REMOVE_ENTRY(arp_table_first_entry,arp_entry) do{ \
-    if ((arp_table_first_entry) == NULL) break;                   \
-    if ((arp_entry)->prev != NULL) (arp_entry)->prev->next = (arp_entry)->next; \
-    if ((arp_entry)->next != NULL) (arp_entry)->next->prev = (arp_entry)->prev; \
-    if ((arp_entry) == (arp_table_first_entry)) (arp_table_first_entry)->next = (arp_entry)->next; \
-    (arp_entry)->prev = (arp_entry)->next = NULL;                   \
-    }                                                         \
-}while(0);
 
 
 

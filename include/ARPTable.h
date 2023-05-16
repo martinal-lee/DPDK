@@ -36,8 +36,7 @@ struct arp_table{
 
 //单例模式arp表，c中使用static实现
 static struct arp_table* arpt = NULL;
-
-static struct arp_table* arp_table_instance(){
+struct arp_table* arp_table_instance(){
     if (arpt == NULL){
         arpt = rte_malloc("arp_table",sizeof (struct arp_table),0);
         if (arpt == NULL){
@@ -47,20 +46,20 @@ static struct arp_table* arp_table_instance(){
     }
     return arpt;
 }
+
 //查找arp表IP对应的mac地址
 unsigned char*
 arp_find_dst_mac_addr(unsigned int ip){
-    struct arp_entry* iter;
+    struct arp_entry* iter = NULL;
     struct arp_table* arpTable = arp_table_instance();
 
 
-    for (iter = arpTable->entry;iter!=NULL;iter = iter->next){
+    for (iter= arpTable->entry;iter!=NULL;iter = iter->next){
         if (ip == iter->ip){
             return iter->mac;
         }
-        return NULL;
     }
-
+    return NULL;
 }
 #pragma pack()
 #endif //DPDKLEARNING_ARPTABLE_H
