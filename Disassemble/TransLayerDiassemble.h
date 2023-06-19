@@ -36,5 +36,30 @@ struct UDPHeader TransUDPDisassemble(unsigned char* recv_mbuf_ptr){
     return udphdr_result;
 }
 
+/**
+ * @brief TCP数据包解析
+ * @param recv_mbuf_ptr           从内存池取出的内容作为传入的指针
+ * @return
+ *     -<em>tcp header</em>
+ */
+static
+struct TCPHeader TransTCPDisassemble(unsigned char* recv_mbuf_ptr){
+    struct rte_tcp_hdr* tcphdr = (struct rte_tcp_hdr*)recv_mbuf_ptr;
+    struct TCPHeader tcphdr_result;
+    memset(&tcphdr_result,0,sizeof (tcphdr_result));
+
+    tcphdr_result.srcPort = ntohs(tcphdr->src_port);
+    tcphdr_result.dstPort = ntohs(tcphdr->dst_port);
+    tcphdr_result.seqNo  = ntohl(tcphdr->sent_seq);
+    tcphdr_result.ackNo = ntohl(tcphdr->recv_ack);
+    tcphdr_result.headerLen = tcphdr->data_off;
+
+    tcphdr_result.flags = tcphdr->tcp_flags;
+    tcphdr_result.window = ntohs(tcphdr->rx_win);
+    tcphdr_result.checksum = ntohs(tcphdr->cksum);
+    tcphdr_result.urgentPointer = ntohs(tcphdr->tcp_urp);
+
+    return tcphdr_result;
+}
 
 #endif //DPDKLEARNING_TRANSLAYERDISASSEMBLE_H

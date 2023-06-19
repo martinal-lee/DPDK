@@ -70,7 +70,9 @@ static int UDPServer(void* arg){
 
 }
 
+static int TCPServer(void *arg){
 
+}
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "EndlessLoop"
@@ -129,10 +131,12 @@ static int PktProcessMain(void* arg){
             if (eth_hdr.frameType == RTE_ETHER_TYPE_IPV4) {
                 //去除帧头(偏移量函数)
                 struct IPv4Header iphdr = IPv4Disassemble(recv_msg);
-                recv_msg = recv_msg + sizeof(struct IPv4Header);
+                struct rte_ipv4_hdr* cknum_iphdr = (struct rte_ipv4_hdr*)recv_msg;
+                recv_msg = recv_msg + sizeof(struct IPv4Header);//后移IP头长度
 
                 if (iphdr.protocol == IPPROTO_ICMP){
                     struct ICMPHeader icmphdr = ICMPDisassemble(recv_msg);
+
                     if (icmphdr.type == RTE_IP_ICMP_ECHO_REQUEST){
                         unsigned char* data = NULL;
                         data = recv_msg+sizeof (struct ICMPHeader);
@@ -140,11 +144,16 @@ static int PktProcessMain(void* arg){
                         unsigned int data_len = iphdr.totalLen - sizeof (struct ICMPHeader) - sizeof (struct IPv4Header);
                         struct rte_mbuf *send_data_mbuf = ICMPSend(mbuf_pool, gDpdkPortID,eth_hdr.srcMAC,iphdr.dstIP,iphdr.srcIP,icmphdr,0,0,data,data_len);
 
-                        rte_ring_mp_enqueue_burst(ring_buffer->tx_queue,(void**)send_data_mbuf,1,NULL);
+                        rte_ring_mp_enqueue_burst(ring_buffer->tx_queue,(void**)&send_data_mbuf,1,NULL);
                     }
                 }
                 if (iphdr.protocol == IPPROTO_UDP) {
                     UDPRecvProcess(iphdr, recv_msg);
+                }
+                if (iphdr.protocol == IPPROTO_TCP) {
+                    //if (iphdr.dstIP != localHostIP) continue;
+
+                    TCPRecvProcess(cknum_iphdr,iphdr,recv_msg);
                 }
             }
             //释放接收缓冲区
@@ -261,6 +270,10 @@ int main(int argc ,char* argv[]) {
     //udp 处理线程
     next_lcore_recv = rte_get_next_lcore(next_lcore_recv,1,0);
     rte_eal_remote_launch(UDPServer,mbuf_pool, next_lcore_recv);/**启用多线程，1回调函数 2回调函数参数 3启用的线程数*/
+
+    //tcp 处理线程
+    next_lcore_recv = rte_get_next_lcore(next_lcore_recv,1,0);
+    rte_eal_remote_launch(TCPServer,mbuf_pool, next_lcore_recv);/**启用多线程，1回调函数 2回调函数参数 3启用的线程数*/
 
     while(1){
         struct rte_mbuf *rx_mbuf[BURST_BUF_SIZE];

@@ -51,13 +51,13 @@ struct localhost{
     pthread_cond_t cond;//条件变量
     pthread_mutex_t mutex;//互斥变量
 };
-//arp表
+//socket表
 struct localhost_table{
     struct localhost* entry; //arp表项
     int count; //arp表中条目数
 };
 
-// 在协议栈线程结束时放入传输层接收队列struct rte_ring* recv_buffer;的结构体
+// 描述一个udp包的所有信息，包括头、数据等内容
 struct TransportRecvBufSingleData{
     unsigned int srcIP;
     unsigned int dstIP;
@@ -68,7 +68,7 @@ struct TransportRecvBufSingleData{
 
     unsigned char* data;
     unsigned short transport_payload_length;//传输层payload长度
-    //为什么不是直接传输udp/tcp数据包上去？猜想原因是因为高层在发送时不知道发给谁？？
+    //为什么不是直接传输udp数据包上去？猜想原因是因为高层在发送时不知道发给谁？？
 };
 
 //单例
@@ -347,18 +347,17 @@ int close_bypass(int sockfd){
  *     -<em>成功or失败</em>
  */
 int UDPRecvProcess(struct IPv4Header iphdr,unsigned char* recv_msg){
-/**协议栈中到udp层前的数据包解析，然后将udp数据直接扔到环形缓冲区*/
+    /**协议栈中到udp层前的数据包解析，然后将udp数据直接扔到环形缓冲区*/
     struct UDPHeader udphdr = TransUDPDisassemble(recv_msg);
     //两个字节以上都要转网络字节序(已经解析过了，不用转了)
     unsigned short length = udphdr.len;
     struct in_addr addr_src, addr_dst;
     addr_src.s_addr = htonl(iphdr.srcIP);
     addr_dst.s_addr = htonl(iphdr.dstIP);
-    recv_msg = recv_msg + sizeof(struct UDPHeader);
     if (udphdr.dstPort == 8889){
         printf("UDP DATA: src ip: %s dst ip: %s src_port:%d dst_port:%d,payload length-->%d %s \n",
                inet_ntoa(addr_src), inet_ntoa(addr_dst), udphdr.srcPort, udphdr.dstPort, length - 8,
-               (recv_msg));
+               (recv_msg+sizeof(struct UDPHeader)));
     }
 
     /**关键点：从全局套接字列表中找到是否有这个套接字，和之前判断的端口一样，如果没有就丢弃*/
@@ -389,7 +388,7 @@ int UDPRecvProcess(struct IPv4Header iphdr,unsigned char* recv_msg){
         return -2;
     }
     memset(t_recv_data->data,0,t_recv_data->transport_payload_length);
-    memcpy(t_recv_data->data, recv_msg,t_recv_data->transport_payload_length);
+    memcpy(t_recv_data->data, recv_msg+sizeof (struct UDPHeader),t_recv_data->transport_payload_length);
     //入该套接字接收队列
     rte_ring_mp_enqueue(host_socket->recv_buffer,t_recv_data);//和burst有什么区别？？
 
@@ -440,6 +439,143 @@ int UDPSendProcess(struct rte_mempool* mbuf_pool, struct rx_tx_queue* ring_buffe
         }
 
     }
+    return 0;
+}
+
+//tcp status
+typedef enum {
+    TCP_STATUS_CLOSED_BYPASS = 0,
+    TCP_STATUS_LISTEN_BYPASS,
+    TCP_STATUS_SYN_RCVD_BYPASS,
+    TCP_STATUS_SYN_SENT_BYPASS,
+    TCP_STATUS_ESTABLISHED_BYPASS,
+
+    TCP_STATUS_FIN_WAIT_1_BYPASS,
+    TCP_STATUS_FIN_WAIT_2_BYPASS,
+    TCP_STATUS_CLOSING_BYPASS,
+    TCP_STATUS_TIME_WAIT_BYPASS,
+
+    TCP_STATUS_CLOSE_WAIT_BYPASS,
+    TCP_STATUS_LAST_ACK_BYPASS
+}TCP_STATUS_BYPASS;
+
+//tcp控制块,socket
+struct tcp_socket_control_block{
+    int fd;
+
+    unsigned int srcIP;
+    unsigned int dstIP;
+    unsigned short srcPort;
+    unsigned short dstPort;
+    unsigned char protocol;
+
+    unsigned char localMAC[RTE_ETHER_ADDR_LEN];
+    struct rte_ring* recv_buffer;
+    struct rte_ring* send_buffer;
+
+    unsigned int seq;
+    unsigned int ack;
+
+    //暂时不需要红黑树
+    struct tcp_socket_control_block* prev;
+    struct tcp_socket_control_block* next;
+
+    //条件变量通知是否有数据，若无则等待，实现阻塞同步
+    pthread_cond_t cond;//条件变量
+    pthread_mutex_t mutex;//互斥变量
+};
+
+//描述一个tcp包的所有信息，包括头、数据等内容
+struct TCPBufSinglePayload{
+    unsigned short srcPort; //源端口
+    unsigned short dstPort; //目的端口
+    unsigned int seqNo; //序号
+    unsigned int ackNo; //确认号
+    unsigned char headerLen; //数据报头的长度(4 bit) + 保留(4 bit)
+    unsigned char flags; //标识TCP不同的控制消息(前两位保留)
+    unsigned short windowSize; //窗口大小
+    unsigned short checksum; //校验和
+    unsigned short urgentPointer;  //紧急指针
+
+    unsigned int options[8];
+    unsigned char* tcpPayload;
+    unsigned int tcpPayloadLength;
+};
+
+//tcp 控制块表
+struct tcp_socket_control_block_table {
+    int count;
+    struct tcp_socket_control_block* entry;
+};
+
+//单例
+static struct tcp_socket_control_block_table* tcp_socket_list = NULL;
+struct tcp_socket_control_block_table* get_tcp_socket_list_instance(){
+    if (tcp_socket_list == NULL){
+        tcp_socket_list = rte_malloc("tcp socket fd",sizeof (struct tcp_socket_control_block_table),0);
+        if (tcp_socket_list == NULL){
+            rte_exit(EXIT_FAILURE,"tcp socket fd 链表创建失败！\n");
+        }
+        memset(tcp_socket_list,0,sizeof (struct tcp_socket_control_block_table));
+    }
+    return tcp_socket_list;
+}
+
+/**
+ * @brief 通过5元组查找tcp socket
+ * @param iphdr                 ip头
+ * @param recv_msg              mbuf形式的协议栈缓冲数据
+ *
+ * @return
+ *     -<em>成功or失败</em>
+ */
+struct tcp_socket_control_block* getTCPSocketInfoFromPortAndIP(struct IPv4Header iphdr,struct TCPHeader tcphdr){
+    struct tcp_socket_control_block_table* t_tcp_socket_list = get_tcp_socket_list_instance();
+    struct tcp_socket_control_block* iter;
+    for (iter = t_tcp_socket_list->entry;iter!=NULL;iter = iter->next){
+        if (iter->srcIP == iphdr.srcIP && iter->dstIP == iphdr.dstIP && tcphdr.srcPort == iter->srcPort && tcphdr.dstPort == iter->dstPort){
+            return iter;
+        }
+    }
+    return NULL;
+}
+
+
+/**
+ * @brief 将协议栈中的数据包解析并放入tcp理线程的接收队列
+ * @param cknum_iphdr           ip头，用于校验码，未转换字节序
+ * @param iphdr                 ip头，已转换字节序
+ * @param recv_msg              mbuf形式的协议栈缓冲数据
+ *
+ * @return
+ *     -<em>成功or失败</em>
+ */
+int TCPRecvProcess(struct rte_ipv4_hdr* cknum_iphdr,struct IPv4Header iphdr,unsigned char* recv_msg){
+    /**协议栈中到udp层前的数据包解析，然后将udp数据直接扔到环形缓冲区*/
+    struct rte_tcp_hdr* cksum_tcphdr = (struct rte_tcp_hdr*) recv_msg;
+    struct TCPHeader tcpHeader = TransTCPDisassemble(recv_msg);
+    //计算cksum是否正确
+    cksum_tcphdr->cksum = 0;
+    unsigned short cksum = rte_ipv4_udptcp_cksum(cknum_iphdr,cksum_tcphdr);//仅接受网络字节序（大端模式）
+
+    if (htons(cksum) != tcpHeader.checksum){
+        printf("TCP CKECKSUM FAILURE!!! \n");
+        return -1;
+    }else{
+        printf("TCP CKECKSUM SUCCESS!!! \n");
+    }
+
+    unsigned short hdrLength = (tcpHeader.headerLen & 0xFC) >> 2;
+    struct in_addr addr_src, addr_dst;
+    addr_src.s_addr = htonl(iphdr.srcIP);
+    addr_dst.s_addr = htonl(iphdr.dstIP);
+    if (tcpHeader.dstPort){
+        printf("%%TCPIP STACK%% \n"
+               "TCP RECV DATA: src ip: %s dst ip: %s src_port:%d dst_port:%d,tcp header length: %d data: %s \n\n",
+               inet_ntoa(addr_src), inet_ntoa(addr_dst), tcpHeader.srcPort, tcpHeader.dstPort, hdrLength,
+               (recv_msg+sizeof(struct TCPHeader)));
+    }
+
     return 0;
 }
 #endif //DPDKLEARNING_UDPANDTCPAPI_H
